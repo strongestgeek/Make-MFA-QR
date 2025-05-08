@@ -1,5 +1,5 @@
 # Make-MFA-QR
-Simple script to make QR codes for MFA keys when copy pasta takes too many tries.
+Simple script to make QR codes for MFA keys when copy pasta takes too many tries.\
 Generates a QR Code you can scan with an app like Google Authenticator.
 
 To use:
