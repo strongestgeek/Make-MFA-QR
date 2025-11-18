@@ -1,1 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>MFA QR Code Generator</title>
 
+<!-- Pyodide -->
+<script src="https://cdn.jsdelivr.net/pyodide/v0.25.1/full/pyodide.js"></script>
+
+<style>
+    body {
+        margin: 0;
+        padding: 0;
+        font-family: system-ui, sans-serif;
+        background: #f2f4f7;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+    }
+
+    .card {
+        background: white;
+        padding: 2rem;
+        width: 360px;
+        max-width: 90%;
+        border-radius: 16px;
+        box-shadow: 0 6px 20px rgba(0,0,0,0.1);
+        text-align: center;
+    }
+
+    h1 {
+        font-size: 1.4rem;
+        margin-bottom: 1rem;
+        color: #222;
+    }
+
+    input {
+        width: 100%;
+        padding: 12px;
+        border-radius: 8px;
+        border: 1px solid #bbb;
+        margin-bottom: 1rem;
+        font-size: 1rem;
+    }
+
+    button {
+        width: 100%;
+        padding: 12px;
+        background: #0078ff;
+        color: white;
+        font-size: 1rem;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: 0.2s;
+    }
+
+    button:hover {
+        background: #005fcc;
+    }
+
+    #qr-container {
+        margin-top: 1.5rem;
+    }
+
+    #qr {
+        width: 200px;
+        height: 200px;
+        margin: auto;
+        display: none;
+    }
+</style>
+</head>
+<body>
+
+<div class="card">
+    <h1>MFA QR Code Generator</h1>
+
+    <input id="secret" placeholder="Enter secret key..." />
+
+    <input id="issuer" placeholder="Issuer (optional)" />
+
+    <input id="account" placeholder="Account name (optional)" />
+
+    <button onclick="generateQR()">Generate QR Code</button>
+
+    <div id="qr-container">
+        <img id="qr">
+    </div>
+</div>
+
+<script>
+let pyodideReady = false;
+let pyodide;
+
+(async () => {
+    pyodide = await loadPyodide();
+    await pyodide.loadPackage(["micropip"]);
+    await pyodide.runPythonAsync(`
+        import micropip
+        await micropip.install("qrcode")
+        await micropip.install("Pillow")
+    `);
+    pyodideReady = true;
+})();
+
+async function generateQR() {
+    if (!pyodideReady) {
+        alert("Loading Python environment… please wait 2–3 seconds");
+        return;
+    }
+
+    const secret = document.getElementById("secret").value.trim();
+    const issuer = document.getElementById("issuer").value.trim() || "Service";
+    const account = document.getElementById("account").value.trim() || "User";
+
+    if (!secret) {
+        alert("Please enter a secret key.");
+        return;
+    }
+
+    const pythonCode = `
+import qrcode
+import base64
+import urllib.parse
+from io import BytesIO
+
+secret = "${secret}"
+issuer = "${issuer}"
+account = "${account}"
+
+uri = f"otpauth://totp/{urllib.parse.quote(issuer)}:{urllib.parse.quote(account)}?secret={secret}&issuer={urllib.parse.quote(issuer)}"
+
+img = qrcode.make(uri)
+buffer = BytesIO()
+img.save(buffer, format="PNG")
+base64.b64encode(buffer.getvalue()).decode()
+`;
+
+    const b64 = await pyodide.runPythonAsync(pythonCode);
+
+    const qrImg = document.getElementById("qr");
+    qrImg.src = "data:image/png;base64," + b64;
+    qrImg.style.display = "block";
+}
+</script>
+
+</body>
+</html>
