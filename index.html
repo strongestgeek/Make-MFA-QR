@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>MFA QR Code Generator</title>
+
+<script src="https://cdn.jsdelivr.net/pyodide/v0.25.1/full/pyodide.js"></script>
+
+<style>
+    body {
+        margin: 0;
+        padding: 0;
+        font-family: system-ui, sans-serif;
+        background: #eef1f6;
+        display: flex;
+        justify-content: center;
+        padding-top: 40px;
+    }
+
+    .card {
+        width: 380px;
+        background: white;
+        padding: 2rem;
+        border-radius: 16px;
+        box-shadow: 0 6px 20px rgba(0,0,0,0.08);
+    }
+
+    h1 {
+        font-size: 1.4rem;
+        margin-bottom: 1rem;
+        text-align: center;
+        color: #333;
+    }
+
+    label {
+        font-weight: 600;
+        font-size: 0.9rem;
+        margin-bottom: 6px;
+        display: block;
+    }
+
+    input {
+        width: 100%;
+        padding: 12px;
+        border-radius: 8px;
+        border: 1px solid #ccc;
+        margin-bottom: 1rem;
+        font-size: 1rem;
+    }
+
+    button {
+        width: 48%;
+        padding: 12px;
+        font-size: 1rem;
+        border-radius: 8px;
+        border: none;
+        cursor: pointer;
+        color: white;
+        background: #006cff;
+        transition: 0.2s;
+    }
+
+    button:hover {
+        background: #0051c7;
+    }
+
+    #clearBtn {
+        background: #999;
+    }
+
+    #clearBtn:hover {
+        background: #666;
+    }
+
+    #qr-container {
+        text-align: center;
+        margin-top: 1.5rem;
+    }
+
+    #qr {
+        width: 200px;
+        display: none;
+        margin: auto;
+    }
+
+    .error-box {
+        background: #ffe3e3;
+        color: #a30000;
+        padding: 12px;
+        border-radius: 8px;
+        margin-bottom: 1rem;
+        border: 1px solid #ffb3b3;
+        display: none;
+    }
+</style>
+</head>
+<body>
+
+<div class="card">
+    <h1>MFA QR Generator</h1>
+
+    <div id="errorBox" class="error-box"></div>
+
+    <label>Account Name</label>
+    <input id="label" placeholder="Your User Name">
+
+    <label>MFA Secret Key</label>
+    <input id="secret" placeholder="Base32 key e.g. JBSWY3DPEHPK3PXP">
+
+    <label>Issuer (Optional)</label>
+    <input id="issuer" placeholder="Company / Service name">
+
+    <div style="display: flex; justify-content: space-between; margin-top: 10px;">
+        <button onclick="generateQR()">Generate</button>
+        <button id="clearBtn" onclick="clearAll()">Clear</button>
+    </div>
+
+    <div id="qr-container">
+        <img id="qr">
+    </div>
+</div>
+
+<script>
+let pyodideReady = false;
+let pyodide;
+
+(async () => {
+    pyodide = await loadPyodide();
+    await pyodide.loadPackage(["micropip"]);
+    await pyodide.runPythonAsync(`
+        import micropip
+        await micropip.install("qrcode")
+        await micropip.install("Pillow")
+    `);
+    pyodideReady = true;
+})();
+
+function showError(msg) {
+    const box = document.getElementById("errorBox");
+    box.style.display = "block";
+    box.innerText = msg;
+}
+
+function clearError() {
+    document.getElementById("errorBox").style.display = "none";
+}
+
+function clearAll() {
+    document.getElementById("label").value = "";
+    document.getElementById("secret").value = "";
+    document.getElementById("issuer").value = "";
+    clearError();
+    const qrImg = document.getElementById("qr");
+    qrImg.src = "";
+    qrImg.style.display = "none";
+}
+
+async function generateQR() {
+    clearError();
+
+    if (!pyodideReady) {
+        showError("Loading Python… try again in 1–2 seconds.");
+        return;
+    }
+
+    const label = document.getElementById("label").value.trim();
+    const secret = document.getElementById("secret").value.trim().replace(/ /g, "");
+    const issuer = document.getElementById("issuer").value.trim();
+
+    if (!label) return showError("Account name is required.");
+    if (!secret) return showError("Secret key is required.");
+
+    // Pass data safely into Python
+    const pythonCode = `
+import qrcode, base64, urllib.parse, re
+from io import BytesIO
+
+label = """${label}"""
+secret = """${secret}"""
+issuer = """${issuer}"""
+
+def is_valid_base32(secret):
+    secret = secret.replace(" ", "").upper()
+    if not re.match(r'^[A-Z2-7]+$', secret):
+        return False
+    valid_lengths = {16, 26, 32, 52, 64}
+    if len(secret) not in valid_lengths:
+        return False
+    try:
+        padded = secret + '=' * ((8 - len(secret) % 8) % 8)
+        base64.b32decode(padded)
+        return True
+    except:
+        return False
+
+if not is_valid_base32(secret):
+    raise ValueError("Invalid Base32 secret key. Use only A–Z and 2–7, length 16–64.")
+
+if issuer:
+    url = f"otpauth://totp/{label}?secret={secret}&issuer={issuer}"
+else:
+    url = f"otpauth://totp/{label}?secret={secret}"
+
+qr = qrcode.QRCode(version=1, box_size=2, border=4)
+qr.add_data(url)
+qr.make(fit=True)
+
+buf = BytesIO()
+qr.make_image(fill="black", back_color="white").save(buf, format="PNG")
+base64.b64encode(buf.getvalue()).decode()
+`;
+
+    try {
+        const b64 = await pyodide.runPythonAsync(pythonCode);
+        const qrImg = document.getElementById("qr");
+        qrImg.src = "data:image/png;base64," + b64;
+        qrImg.style.display = "block";
+    } catch (err) {
+        showError(err.toString().replace("ValueError:", "").trim());
+    }
+}
+</script>
+
+</body>
+</html>
